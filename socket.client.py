@@ -1,53 +1,88 @@
+import binascii
 import socket
 import struct
 import zlib
 
-# checksum function
-def checksumFunc(data):
-  checksumCalculated = zlib.crc32(data)
-  return checksumCalculated
+def checkCalcChecksum(info, checksum):
+   
+    info = bin(int(binascii.hexlify(info),16))
+    checksum = bin(int(binascii.hexlify(bytes(checksum)),16))
 
-# configure environment
-clientPort = 5000
-clientAddress = "127.0.0.1"
-serverPort = 5001
-serverAddress = "127.0.0.1"
+    c1 = info[0:16] or '0'
+    c2 = info[16:32] or '0'
+    c3 = info[32:48] or '0'
+    c4 = info[48:64] or '0'
+ 
+    ReceiverSum = bin(int(c1, 2)+int(c2, 2)+int(checksum, 2) +
+                      int(c3, 2)+int(c4, 2)+int(checksum, 2))[2:]
+ 
+    if(len(ReceiverSum) > 16):
+        x = len(ReceiverSum)-16
+        ReceiverSum = bin(int(ReceiverSum[0:x], 2)+int(ReceiverSum[x:], 2))[2:]
+    if(len(ReceiverSum) < 16):
+        ReceiverSum = '0'*(16-len(ReceiverSum))+ReceiverSum
+ 
+    return int(ReceiverSum, 2) == 0
 
-# create and bind the socket
-client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-client.bind((serverAddress, clientPort))
+def calcVhecksum(info):
 
-# get a message and convert it to bytes
-content = str(input("Escreva sua mensagem: "))
+    info = bin(int(binascii.hexlify(info),16))
+   
+    c1 = info[0:16] or '0'
+    c2 = info[16:32] or '0'
+    c3 = info[32:48] or '0'
+    c4 = info[48:64] or '0'
+ 
+    Sum = bin(int(c1, 2)+int(c2, 2)+int(c3, 2)+int(c4, 2))[2:]
 
-while (content != "out"):
-  # calculate checksum from message
-  packageToBeSent = content.encode()
-  checksumFromPackage = checksumFunc(packageToBeSent)
-  print("checksum from message to be sent: " + str(checksumFromPackage) + "\n")
+    if(len(Sum) > 16):
+        x = len(Sum)-16
+        Sum = bin(int(Sum[0:x], 2)+int(Sum[x:], 2))[2:]
+    if(len(Sum) < 16):
+        Sum = '0'*(16-len(Sum))+Sum
+ 
+    Checksum = ''
+    for i in Sum:
+        if(i == '1'):
+            Checksum += '0'
+        else:
+            Checksum += '1'
+    return Checksum
 
-  # configure message header
-  contentLength = len(packageToBeSent)
-  udpHeader = struct.pack(
-    "!IIII",
-    clientPort,
-    serverPort,
-    contentLength,
-    checksumFromPackage
-  )
+portSrc = 1112
+portDst = 1111
+receiverAddr = ('127.0.0.1', portDst)
+mtAddr = ('127.0.0.1', portSrc)
 
-  # message to be sent
-  packageWithHeader = udpHeader + packageToBeSent
-  receiverAddress = (serverAddress, serverPort)
-  client.sendto(packageWithHeader, receiverAddress)
+socketSend = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-  print("=======> message sent")
+sockRcv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sockRcv.bind(mtAddr)
 
-  # get returned message
-  messageReceived, senderAddress = client.recvfrom(1024)
-  contentReceived = messageReceived.decode()
-  print("message received from server: " + contentReceived + "\n")
+expecting_seq = 0
 
-  content = str(input("Escreva sua mensagem: "))
+while True:
+    fullPacket, senderAddress = sockRcv.recvfrom(1024)
 
-client.close()
+    udpHeader = fullPacket[:20]
+    info = fullPacket[20:]
+    udpHeader = struct.unpack("!IIIII", udpHeader)
+    correct_checksum = udpHeader[3]
+
+    seq = udpHeader[4]
+    content = info[1:]
+
+    is_info_corrupted = checkCalcChecksum(info, correct_checksum)
+
+    if not is_info_corrupted:
+        value = "ACK" + str(seq)
+        checksum = calcVhecksum(value.encode())
+        socketSend.sendto((checksum + value).encode(), receiverAddr)
+        if str(seq) == str(expecting_seq):
+            print(content.decode())
+            expecting_seq = 1 - expecting_seq
+    else:
+        negative_seq = 1 - expecting_seq
+        checksum = calcVhecksum(negative_seq)
+        header = struct.pack("!II", int(checksum, 2), negative_seq)
+        socketSend.sendto(header, receiverAddr)
