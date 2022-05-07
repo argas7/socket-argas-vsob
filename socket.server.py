@@ -5,8 +5,7 @@ import binascii
 
 SEGMENT_SIZE = 16
 
-def checksum_calculator(data):
-
+def checksumCalculator(data):
   data = bin(int(binascii.hexlify(data),16))
 
   stPacket = data[0:16] or '0'
@@ -14,47 +13,62 @@ def checksum_calculator(data):
   rdPacket = data[32:48] or '0'
   thPacket = data[48:64] or '0'
 
-  Sum = bin(int(stPacket, 2)+int(ndPacket, 2)+int(rdPacket, 2)+int(thPacket, 2))[2:]
+  sum = bin(
+    int(stPacket, 2) +
+    int(ndPacket, 2) +
+    int(rdPacket, 2) +
+    int(thPacket, 2)
+  )[2:]
 
-  if(len(Sum) > 16):
-    x = len(Sum)-16
-    Sum = bin(int(Sum[0:x], 2)+int(Sum[x:], 2))[2:]
-  if(len(Sum) < 16):
-    Sum = '0'*(16-len(Sum))+Sum
+  if(len(sum) > 16):
+    x = len(sum)-16
+    sum = bin(
+      int(sum[0:x], 2) +
+      int(sum[x:], 2)
+    )[2:]
 
-  Checksum = ''
-  for i in Sum:
+  if(len(sum) < 16):
+    sum = '0' * (16 - len(sum)) + sum
+
+  checksum = ''
+
+  for i in sum:
     if(i == '1'):
-      Checksum += '0'
+      checksum += '0'
     else:
-      Checksum += '1'
-  return Checksum
+      checksum += '1'
 
+  return checksum
 
 def checkChecksumCalculator(dataToCalc, checksum):
-  dataToCalc = bin(int(binascii.hexlify(dataToCalc),16))
-  checksum = bin(int(binascii.hexlify(bytes(checksum)),16))
+  dataToCalc = bin(int(binascii.hexlify(dataToCalc), 16))
+
+  checksum = bin(int(binascii.hexlify(bytes(checksum)), 16))
 
   stPacket = dataToCalc[0:16] or '0'
   ndPacket = dataToCalc[16:32] or '0'
   rdPacket = dataToCalc[32:48] or '0'
   thPacket = dataToCalc[48:64] or '0'
 
-  ReceiverSum = bin(int(stPacket, 2)
+  receiverSum = bin(int(stPacket, 2)
     + int(ndPacket, 2)
     + int(checksum, 2)
     + int(rdPacket, 2)
     + int(thPacket, 2)
-    + int(checksum, 2))[2:]
+    + int(checksum, 2)
+  )[2:]
 
-  if(len(ReceiverSum) > 16):
-    x = len(ReceiverSum)-16
-    ReceiverSum = bin(int(ReceiverSum[0:x], 2)
-      + int(ReceiverSum[x:], 2))[2:]
+  if(len(receiverSum) > 16):
+    x = len(receiverSum) - 16
 
-  return int(ReceiverSum, 2) == 0
+    receiverSum = bin(
+      int(receiverSum[0:x], 2) +
+      int(receiverSum[x:], 2)
+    )[2:]
 
-with open("file-to-test.txt") as f:
+  return int(receiverSum, 2) == 0
+
+with open('file-to-test.txt') as f:
   content = f.read()
 
 sourcePort = 1111
@@ -84,8 +98,15 @@ while offset < len(content):
   while not ackReceived:
     packet = (str(seq) + segment).encode()
     dataLength = len(packet)
-    checksum = checksum_calculator(packet)
-    udpHeader = struct.pack('!IIIII', sourcePort, destinationPort, dataLength, int(checksum, 2), seq)
+    checksum = checksumCalculator(packet)
+    udpHeader = struct.pack(
+      '!IIIII',
+      sourcePort,
+      destinationPort,
+      dataLength,
+      int(checksum, 2),
+      seq
+    )
 
     packetWithHeader = udpHeader + packet
 
@@ -95,11 +116,11 @@ while offset < len(content):
       message, address = recvSock.recvfrom(1024)
 
     except socket.timeout:
-      print("Timeout")
+      print('Timeout')
     else:
       checksum = message[:16]
       ackSeq = message[19]
-      if checksum_calculator(message[16:]) == checksum.decode() and chr(ackSeq) == str(seq):
+      if checksumCalculator(message[16:]) == checksum.decode() and chr(ackSeq) == str(seq):
         ackReceived = True
 
   seq = 1 - seq
