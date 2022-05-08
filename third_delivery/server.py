@@ -1,18 +1,52 @@
+import binascii
 import socket
 import struct
 import zlib
-import binascii
 
-SEGMENT_SIZE = 16
+def checksumCalculator(message):
+  message = bin(int(binascii.hexlify(message), 16))
 
-def checksumCalculatorCheckFunc(info, checksum):
-  info = bin(int(binascii.hexlify(info), 16))
+  stPacket = message[0:16] or '0'
+  ndPacket = message[16:32] or '0'
+  rePacket = message[32:48] or '0'
+  thPacket = message[48:64] or '0'
+
+  binarySum = bin(
+    int(stPacket, 2) +
+    int(ndPacket, 2) +
+    int(rePacket, 2) +
+    int(thPacket, 2)
+  )[2:]
+
+  if(len(binarySum) > 16):
+    x = len(binarySum) - 16
+
+    binarySum = bin(
+      int(binarySum[0:x], 2) +
+      int(binarySum[x:], 2)
+    )[2:]
+
+  if(len(binarySum) < 16):
+    binarySum = '0' * (16 - len(binarySum)) + binarySum
+
+  checksum = ''
+
+  for i in binarySum:
+    if(i == '1'):
+      checksum += '0'
+    else:
+      checksum += '1'
+
+  return checksum
+
+def checksumChecker(message, checksum):
+  message = bin(int(binascii.hexlify(message), 16))
   checksum = bin(int(binascii.hexlify(bytes(checksum)), 16))
 
-  stPacket = info[0:16] or '0'
-  ndPacket = info[16:32] or '0'
-  rePacket = info[32:48] or '0'
-  thPacket = info[48:64] or '0'
+  stPacket = message[0:16] or '0'
+  ndPacket = message[16:32] or '0'
+  rePacket = message[32:48] or '0'
+  thPacket = message[48:64] or '0'
 
   receiverSum = bin(
     int(stPacket, 2) +
@@ -35,92 +69,48 @@ def checksumCalculatorCheckFunc(info, checksum):
 
   return int(receiverSum, 2) == 0
 
-def checksumCalculator(info):
-  info = bin(int(binascii.hexlify(info),16))
-
-  stPacket = info[0:16] or '0'
-  ndPacket = info[16:32] or '0'
-  rePacket = info[32:48] or '0'
-  thPacket = info[48:64] or '0'
-
-  binarySum = bin(
-    int(stPacket, 2) +
-    int(ndPacket, 2) +
-    int(rePacket, 2) +
-    int(thPacket, 2)
-  )[2:]
-
-  if(len(binarySum) > 16):
-    x = len(binarySum)-16
-
-    binarySum = bin(
-      int(binarySum[0:x], 2) +
-      int(binarySum[x:], 2)
-    )[2:]
-
-    if(len(binarySum) < 16):
-      binarySum = '0' * (16 - len(binarySum)) + binarySum
-
-  checksum = ''
-
-  for i in binarySum:
-    if(i == '1'):
-      checksum += '0'
-    else:
-      checksum += '1'
-
-  return checksum
-
-
 # configure environment
 clientPort = 5000
-clientAddress = "127.0.0.1"
 serverPort = 5001
-serverAddress = "127.0.0.1"
+
+# Só usando isso aqui pra testar, a gente pode salvar esses clients
+# |__ dentro da estrutura de dados do CIntofome
+clientAddress = ('127.0.0.1', clientPort)
+serverAddress = ('127.0.0.1', serverPort)
+
+serverSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+serverSocket.bind(serverAddress)
 
 expectingSeq = 0
 
-# create and bind the socket
-server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-server.bind((serverAddress, serverPort))
-print("=======> socket is on to receive messages:\n")
+while True:
+  fullPacket, senderAddress = serverSocket.recvfrom(1024)
 
-while(True):
-  entirePackage, senderAddress = server.recvfrom(1024)
-  print("=======> socket received a message:")
+  udpHeader = fullPacket[:20]
+  message = fullPacket[20:]
+  udpHeader = struct.unpack('!IIIII', udpHeader)
+  checksumReceived = udpHeader[3]
 
-  # destruct message received
-  udpHeader = entirePackage[:20]
-  receivedContent = entirePackage[20:]
+  seqReceived = udpHeader[4]
+  contentFromMessage = message[1:]
 
-  # unpack header
-  udpHeader = struct.unpack("!IIIII", udpHeader)
-  correctChecksum = udpHeader[3]
+  isInfoCorrupted = checksumChecker(message, checksumReceived)
 
-  # print if message is corrupted
-  isContentCorrupted = checksumCalculatorCheckFunc(receivedContent, correctChecksum)
+  if not isInfoCorrupted:
+    # Escrever aqui os métodos do CIntofome
+    # ...
 
-  seq = udpHeader[4]
-  content = receivedContent[1:]
-
-  if not isContentCorrupted:
-    print("the data is not corrupted!")
-    value = 'ACK' + str(seq)
+    value = 'ACK' + str(seqReceived)
     checksum = checksumCalculator(value.encode())
-    server.sendto((checksum + value).encode(), (clientAddress, clientPort))
+    # Enviamos o ACK de confirmação aqui
+    # ... (acho que a gente pode devolver a resposda do CIntofome junto com o ACK)
+    serverSocket.sendto((checksum + value).encode(), clientAddress)
 
-    if str(seq) == str(expectingSeq):
-      print(content.decode())
+    if str(seqReceived) == str(expectingSeq):
+      print(contentFromMessage.decode())
       expectingSeq = 1 - expectingSeq
     else:
-      print("the data was corrupted!")
       negativeSeq = 1 - expectingSeq
-      checksum = checksumCalculator(negativeSeq)
+      checksum = checksumCalculator(str(negativeSeq))
       header = struct.pack('!II', int(checksum, 2), negativeSeq)
-      server.sendto(header, (clientAddress, clientPort))
-
-  # messageReceived = receivedContent.decode()
-  # print("message received: " + messageReceived + "\n")
-
-  # messageToBeReturned = messageReceived.encode()
-  # server.sendto(messageToBeReturned, senderAddress)
+      serverSocket.sendto(header, clientAddress)

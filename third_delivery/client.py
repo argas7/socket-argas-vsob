@@ -1,39 +1,39 @@
+from audioop import add
 import socket
 import struct
-import zlib
 import binascii
 
 SEGMENT_SIZE = 16
 
-# checksum function
-def checksumCalculator(data):
-  data = bin(int(binascii.hexlify(data),16))
+def checksumCalculator(message):
+  message = bin(int(binascii.hexlify(message), 16))
 
-  stPacket = data[0:16] or '0'
-  ndPacket = data[16:32] or '0'
-  rdPacket = data[32:48] or '0'
-  thPacket = data[48:64] or '0'
+  stPacket = message[0:16] or '0'
+  ndPacket = message[16:32] or '0'
+  rdPacket = message[32:48] or '0'
+  thPacket = message[48:64] or '0'
 
-  sum = bin(
+  binarySum = bin(
     int(stPacket, 2) +
     int(ndPacket, 2) +
     int(rdPacket, 2) +
     int(thPacket, 2)
   )[2:]
 
-  if(len(sum) > 16):
-    x = len(sum) - 16
-    sum = bin(
-      int(sum[0:x], 2) +
-      int(sum[x:], 2)
+  if(len(binarySum) > 16):
+    x = len(binarySum) - 16
+
+    binarySum = bin(
+      int(binarySum[0:x], 2) +
+      int(binarySum[x:], 2)
     )[2:]
 
-  if(len(sum) < 16):
-    sum = '0' * (16 - len(sum)) + sum
+  if(len(binarySum) < 16):
+    binarySum = '0' * (16 - len(binarySum)) + binarySum
 
   checksum = ''
 
-  for i in sum:
+  for i in binarySum:
     if(i == '1'):
       checksum += '0'
     else:
@@ -43,37 +43,34 @@ def checksumCalculator(data):
 
 # configure environment
 clientPort = 5000
-clientAddress = "127.0.0.1"
 serverPort = 5001
-serverAddress = "127.0.0.1"
 
-# create and bind the socket
-client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-client.bind((serverAddress, clientPort))
+serverAddress = ('127.0.0.1', serverPort)
+clientAddress = ('127.0.0.1', clientPort)
 
-offset = 0
-seq = 0
+clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+clientSocket.bind(clientAddress)
 
-# get a message and convert it to bytes
-content = str(input())
+currSEQ = 0
+content = "socket_started"
 
-while (content != "levantar"):
-  # packageWithHeader, receiverAddress = prepareMessageToBeSent(content)
-  # send the message and start timer
-  client.settimeout(1)
+while(content != "levantar"):
+  content = str(input())
+  offset = 0
 
+  clientSocket.settimeout(1)
   while offset < len(content):
     if offset + SEGMENT_SIZE > len(content):
       segment = content[offset:]
     else:
       segment = content[offset:offset + SEGMENT_SIZE]
 
-    offset += SEGMENT_SIZE - seq
+    offset += SEGMENT_SIZE - currSEQ
 
     ackReceived = False
 
     while not ackReceived:
-      packet = (str(seq) + segment).encode()
+      packet = (str(currSEQ) + segment).encode()
       dataLength = len(packet)
       checksum = checksumCalculator(packet)
       udpHeader = struct.pack(
@@ -82,32 +79,24 @@ while (content != "levantar"):
         serverPort,
         dataLength,
         int(checksum, 2),
-        seq
+        currSEQ
       )
 
       packetWithHeader = udpHeader + packet
-      receiverAddress = (serverAddress, serverPort)
 
-      client.sendto(packetWithHeader, receiverAddress)
+      clientSocket.sendto(packetWithHeader, serverAddress)
 
       try:
-        message, address = client.recvfrom(1024)
+        message, serverFromAddress = clientSocket.recvfrom(1024)
+
       except socket.timeout:
         print('Timeout')
       else:
         checksum = message[:16]
         ackSeq = message[19]
-        if checksumCalculator(message[16:]) == checksum.decode() and chr(ackSeq) == str(seq):
+        if checksumCalculator(message[16:]) == checksum.decode() and chr(ackSeq) == str(currSEQ):
           ackReceived = True
 
-    seq = 1 - seq
+    currSEQ = 1 - currSEQ
 
-  print("=======> message sent")
-
-  # get returned message
-  messageReceived, senderAddress = client.recvfrom(1024)
-  print("message received from server: " + messageReceived + "\n")
-
-  content = str(input("Escreva sua mensagem: "))
-
-client.close()
+clientSocket.close()
