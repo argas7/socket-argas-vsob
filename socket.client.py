@@ -1,63 +1,35 @@
-import binascii
+from audioop import add
 import socket
 import struct
-import zlib
+import binascii
 
-def checkCalcChecksum(info, checksum):
-  info = bin(int(binascii.hexlify(info), 16))
-  checksum = bin(int(binascii.hexlify(bytes(checksum)), 16))
+SEGMENT_SIZE = 16
 
-  stPacket = info[0:16] or '0'
-  ndPacket = info[16:32] or '0'
-  rePacket = info[32:48] or '0'
-  thPacket = info[48:64] or '0'
+def checksumCalculator(message):
+  message = bin(int(binascii.hexlify(message), 16))
 
-  receiverSum = bin(
-    int(stPacket, 2) +
-    int(ndPacket, 2) +
-    int(checksum, 2) +
-    int(rePacket, 2) +
-    int(thPacket, 2) +
-    int(checksum, 2)
-  )[2:]
-
-  if(len(receiverSum) > 16):
-    x = len(receiverSum) - 16
-    receiverSum = bin(
-      int(receiverSum[0:x], 2) +
-      int(receiverSum[x:], 2)
-    )[2:]
-
-  if(len(receiverSum) < 16):
-    receiverSum = '0' * (16 - len(receiverSum)) + receiverSum
-
-  return int(receiverSum, 2) == 0
-
-def calcChecksum(info):
-  info = bin(int(binascii.hexlify(info),16))
-
-  stPacket = info[0:16] or '0'
-  ndPacket = info[16:32] or '0'
-  rePacket = info[32:48] or '0'
-  thPacket = info[48:64] or '0'
+  stPacket = message[0:16] or '0'
+  ndPacket = message[16:32] or '0'
+  rdPacket = message[32:48] or '0'
+  thPacket = message[48:64] or '0'
 
   binarySum = bin(
     int(stPacket, 2) +
     int(ndPacket, 2) +
-    int(rePacket, 2) +
+    int(rdPacket, 2) +
     int(thPacket, 2)
   )[2:]
 
   if(len(binarySum) > 16):
-    x = len(binarySum)-16
+    x = len(binarySum) - 16
 
     binarySum = bin(
       int(binarySum[0:x], 2) +
       int(binarySum[x:], 2)
     )[2:]
 
-    if(len(binarySum) < 16):
-      binarySum = '0' * (16 - len(binarySum)) + binarySum
+  if(len(binarySum) < 16):
+    binarySum = '0' * (16 - len(binarySum)) + binarySum
 
   checksum = ''
 
@@ -69,41 +41,70 @@ def calcChecksum(info):
 
   return checksum
 
-portSrc = 1112
-portDst = 1111
-receiverAddr = ('127.0.0.1', portDst)
-mtAddr = ('127.0.0.1', portSrc)
+# configure environment
+clientPort = 5000
+serverPort = 5001
 
-socketSend = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+serverAddress = ('127.0.0.1', serverPort)
+clientAddress = ('127.0.0.1', clientPort)
 
-sockRcv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sockRcv.bind(mtAddr)
+clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+clientSocket.bind(clientAddress)
 
-expecting_seq = 0
+currSEQ = 0
+connectionStatus = "started"
 
-while True:
-  fullPacket, senderAddress = sockRcv.recvfrom(1024)
+while(connectionStatus != "closed"):
+  content = str(input())
+  offset = 0
 
-  udpHeader = fullPacket[:20]
-  info = fullPacket[20:]
-  udpHeader = struct.unpack('!IIIII', udpHeader)
-  correct_checksum = udpHeader[3]
-
-  seq = udpHeader[4]
-  content = info[1:]
-
-  is_info_corrupted = checkCalcChecksum(info, correct_checksum)
-
-  if not is_info_corrupted:
-    value = 'ACK' + str(seq)
-    checksum = calcChecksum(value.encode())
-    socketSend.sendto((checksum + value).encode(), receiverAddr)
-
-    if str(seq) == str(expecting_seq):
-      print(content.decode())
-      expecting_seq = 1 - expecting_seq
+  clientSocket.settimeout(1)
+  while(offset < len(content)):
+    if offset + SEGMENT_SIZE > len(content):
+      segment = content[offset:]
     else:
-      negative_seq = 1 - expecting_seq
-      checksum = calcChecksum(negative_seq)
-      header = struct.pack('!II', int(checksum, 2), negative_seq)
-      socketSend.sendto(header, receiverAddr)
+      segment = content[offset:offset + SEGMENT_SIZE]
+
+    offset += SEGMENT_SIZE - currSEQ
+
+    ackReceived = False
+
+    while(not ackReceived):
+      packet = (str(currSEQ) + segment).encode()
+      dataLength = len(packet)
+      checksum = checksumCalculator(packet)
+      udpHeader = struct.pack(
+        '!IIIII',
+        clientPort,
+        serverPort,
+        dataLength,
+        int(checksum, 2),
+        currSEQ
+      )
+
+      packetWithHeader = udpHeader + packet
+
+      clientSocket.sendto(packetWithHeader, serverAddress)
+
+      try:
+        message, serverFromAddress = clientSocket.recvfrom(1024)
+
+      except socket.timeout:
+        print('Timeout')
+      else:
+        checksum = message[:16]
+        ackSeq = message[19]
+        messageReceivedFromServer = message[20:]
+
+        if (messageReceivedFromServer.decode() == "volte sempre ^^"):
+          connectionStatus = "closed"
+
+        if (checksumCalculator(message[16:20]) == checksum.decode() and chr(ackSeq) == str(currSEQ)):
+          ackReceived = True
+
+    currSEQ = 1 - currSEQ
+
+    fullPacket, senderAddress = clientSocket.recvfrom(1024)
+    print(fullPacket)
+
+clientSocket.close()
