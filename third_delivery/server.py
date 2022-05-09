@@ -96,16 +96,18 @@ while True:
 
   isInfoCorrupted = checksumChecker(message, checksumReceived)
 
+  print("========================> Received some message" + contentFromMessage.decode())
   if not isInfoCorrupted:
+    print(senderAddress[0])
     # Escrever aqui os métodos do CIntofome
     # ...
 
     value = 'ACK' + str(seqReceived)
     checksum = checksumCalculator(value.encode())
-    # Enviamos o ACK de confirmação aqui
-    # ... (acho que a gente pode devolver a resposda do CIntofome junto com o ACK)
-    serverSocket.sendto((checksum + value).encode(), clientAddress)
+    serverSocket.sendto((checksum + value + "").encode(), clientAddress)
 
+    print('SEQ Received = ' + str(seqReceived))
+    print('SEQ Esperado = ' + str(expectingSeq))
     if str(seqReceived) == str(expectingSeq):
       print(contentFromMessage.decode())
       expectingSeq = 1 - expectingSeq

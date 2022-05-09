@@ -52,9 +52,10 @@ clientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 clientSocket.bind(clientAddress)
 
 currSEQ = 0
-content = "socket_started"
+connectionStatus = "started"
 
-while(content != "levantar"):
+while(not (connectionStatus == "closed")):
+  print("Waiting for message to send")
   content = str(input())
   offset = 0
 
@@ -69,7 +70,7 @@ while(content != "levantar"):
 
     ackReceived = False
 
-    while not ackReceived:
+    while(not ackReceived):
       packet = (str(currSEQ) + segment).encode()
       dataLength = len(packet)
       checksum = checksumCalculator(packet)
@@ -94,7 +95,12 @@ while(content != "levantar"):
       else:
         checksum = message[:16]
         ackSeq = message[19]
-        if checksumCalculator(message[16:]) == checksum.decode() and chr(ackSeq) == str(currSEQ):
+        messageReceivedFromServer = message[20:]
+
+        if (messageReceivedFromServer.decode() == "volte sempre ^^"):
+          connectionStatus = "closed"
+
+        if (checksumCalculator(message[16:20]) == checksum.decode() and chr(ackSeq) == str(currSEQ)):
           ackReceived = True
 
     currSEQ = 1 - currSEQ

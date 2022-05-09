@@ -28,13 +28,13 @@ class Customer:
     self.ip = ip
     self.port = port
     self.table = table
-    self.seqNumber = 1
+    self.seqNumber = 0
     self.serverState = 'WAITING'
     self.billToPay = 0
 
 
-  def updateSeqNumber(currSeq):
-    seqNumber = 1 - seqNumber
+  def updateSeqNumber(self, updatedSeq):
+    self.seqNumber = updatedSeq
 
   def getTotalCost(self):
     totalCost = 0
@@ -98,76 +98,74 @@ class CINtofome:
       if customer.ip == ip and customer.port == port:
         self.customers.remove(customer)
 
-  def getMessage(self, ip, port, message, seqReceived):
+  def getMessage(self, ip, port, message):
     if(not self.customerExists(ip, port)):
-      self.customers.append(Customer(message, ip, port))
-    
-    customer = self.getCustomer(ip, port)
+      self.customers.append(Customer(message, ip, port, 0))
 
-    # Atualiza o seqNumber waited de cada custumer a cada mensagem
-    customer.updateSeqNumber(seqReceived)
+    customer = self.getCustomer(ip, port)
 
     if customer.serverState == 'WAITING':
       if message == 'chefia':
         customer.serverState = 'Waiting table'
-        return ('Digite sua mesa', customer.seqNumber)
+        return 'Digite sua mesa'
+      return 'Erro'
     elif customer.serverState == 'Waiting table':
       customer.table = message
       customer.serverState = 'Waiting name'
-      return ('Digite seu nome', customer.seqNumber)
+      return 'Digite seu nome'
     elif customer.serverState == 'Waiting name':
       customer.name = message
       customer.serverState = 'Waiting option'
       returnMessage = ''
-      returnMessage + 'Digite uma das opções a seguir (o número)' + '\n' + '\n'
-      returnMessage + '1 - cardápio' + '\n'
-      returnMessage + '2 - pedido' + '\n'
-      returnMessage + '3 - conta individual' + '\n'
-      returnMessage + '4 - conta da mesa' + '\n'
-      returnMessage + '5 - pagar' + '\n'
-      returnMessage + '6 - levantar'
-      return (returnMessage, customer.seqNumber)
+      returnMessage = returnMessage + 'Digite uma das opções a seguir (o número)' + '\n' + '\n'
+      returnMessage = returnMessage + '1 - cardápio' + '\n'
+      returnMessage = returnMessage + '2 - pedido' + '\n'
+      returnMessage = returnMessage + '3 - conta individual' + '\n'
+      returnMessage = returnMessage + '4 - conta da mesa' + '\n'
+      returnMessage = returnMessage + '5 - pagar' + '\n'
+      returnMessage = returnMessage + '6 - levantar'
+      return returnMessage
     elif customer.serverState == 'Waiting option':
       if message == '1':
         customer.serverState = 'Waiting option'
-        return (self.menu.getMenu(), customer.seqNumber)
+        return self.menu.getMenu()
       elif message == '2':
         customer.serverState = 'Waiting order'
-        return ('Digite qual o primeiro item que gostaria (número)', customer.seqNumber)
+        return 'Digite qual o primeiro item que gostaria (número)'
       elif message == '3':
         customer.serverState = 'Waiting option'
-        return (customer.getIndividualBill(), customer.seqNumber)
+        return customer.getIndividualBill()
       elif message == '4':
         customer.serverState = 'Waiting option'
-        return (self.getTableBill(customer.table), customer.seqNumber)
+        return self.getTableBill(customer.table)
       elif message == '5':
         customer.serverState = 'Waiting pay'
-        return ('Sua conta foi R$ ' + str(customer.billToPay) + 'e a da mesa R$ ' + str(self.getTableBillToPay(customer.table)) + '. Digite o valor a ser pago', customer.seqNumber)
+        return ('Sua conta foi R$ ' + str(customer.billToPay) + 'e a da mesa R$ ' + str(self.getTableBillToPay(customer.table)) + '. Digite o valor a ser pago')
       elif message == '6':
         customer.serverState = 'Waiting option'
         if customer.billToPay == 0:
           self.removeCustomer(ip, port)
-          return ('Volte sempre', customer.seqNumber)
+          return 'volte sempre ^^'
         else:
-          return ('Ainda faltam R$ ' + str(customer.billToPay) + 'da sua conta', customer.seqNumber)
+          return 'Ainda faltam R$ ' + str(customer.billToPay) + 'da sua conta'
+      return 'Erro'
     elif customer.serverState == 'Waiting order':
       customer.makeOrder(self.menu, int(message))
       customer.serverState = 'Waiting option'
-      return ('Pedido feito', customer.seqNumber)
+      return 'Pedido feito'
     elif customer.serverState == 'Waiting pay':
       customer.payBill(int(message))
       customer.serverState = 'Waiting option'
       if(int(message) == customer.billToPay):
-        return ('Pagamento realizado', customer.seqNumber)
+        return 'Pagamento realizado'
       elif(int(message) < customer.billToPay):
-        return ('Pagamento realizado. Falta R$ ' + str(customer.billToPay), customer.seqNumber)
+        return ('Pagamento realizado. Falta R$ ' + str(customer.billToPay))
       elif(int(message) > customer.billToPay):
-        return ('Pagamento realizado. Vamos pegar o que sobrou como gorjeta. Muito obrigado!!', customer.seqNumber)
+        return 'Pagamento realizado. Vamos pegar o que sobrou como gorjeta. Muito obrigado!!'
+      return 'Erro'
+    return 'Erro'
 
 
-
-
-      
 
 # chatbot classes ----------
 
@@ -251,6 +249,8 @@ serverSocket.bind(serverAddress)
 
 cintofomeServer = CINtofome()
 
+expectingSeq = 0
+
 while True:
   fullPacket, senderAddress = serverSocket.recvfrom(1024)
 
@@ -265,38 +265,25 @@ while True:
   isInfoCorrupted = checksumChecker(message, checksumReceived)
 
   if not isInfoCorrupted:
-    custumerAlreadyExists = cintofomeServer.customerExists(senderAddress[0], senderAddress[1]);
+    print(senderAddress[0])
 
     # extrair dados da mesagem:
     custumerAddress, custumerPort = senderAddress
     messageReceived = contentFromMessage.decode()
-    
-    isCustomerRegisterd = cintofomeServer.customerExists(custumerAddress, custumerPort)
-    currCustomerSeqNumber = 0
-
-    if (isCustomerRegisterd):
-      currCustomer = cintofomeServer.getCustomer(custumerAddress, custumerPort)
-      currCustomerSeqNumber = currCustomer.seqNumber
 
     # chamar cintofome handler
-    messageToReturnToTheClient, expectingSeq = cintofomeServer.getMessage(
+    messageToReturnToTheClient = cintofomeServer.getMessage(
       custumerAddress,
       custumerPort,
-      messageReceived,
-      currCustomerSeqNumber
+      messageReceived
     )
 
     value = 'ACK' + str(seqReceived)
     checksum = checksumCalculator(value.encode())
-    # Enviamos o ACK de confirmação aqui
-    # ... (acho que a gente pode devolver a resposda do CIntofome junto com o ACK)
-    serverSocket.sendto(
-      (checksum + value + messageToReturnToTheClient).encode(),
-      clientAddress
-    )
+    serverSocket.sendto((checksum + value + messageToReturnToTheClient).encode(), clientAddress)
 
-    serverSocket.sendto((checksum + value).encode(), clientAddress)
-
+    print('SEQ Received = ' + str(seqReceived))
+    print('SEQ Esperado = ' + str(expectingSeq))
     if str(seqReceived) == str(expectingSeq):
       print(contentFromMessage.decode())
       expectingSeq = 1 - expectingSeq

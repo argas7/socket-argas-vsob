@@ -58,7 +58,7 @@ while(connectionStatus != "closed"):
   content = str(input())
   offset = 0
 
-  clientSocket.settimeout(1)
+  clientSocket.settimeout(2)
   while(offset < len(content)):
     if offset + SEGMENT_SIZE > len(content):
       segment = content[offset:]
@@ -95,6 +95,7 @@ while(connectionStatus != "closed"):
         checksum = message[:16]
         ackSeq = message[19]
         messageReceivedFromServer = message[20:]
+        print(messageReceivedFromServer.decode())
 
         if (messageReceivedFromServer.decode() == "volte sempre ^^"):
           connectionStatus = "closed"
@@ -103,8 +104,5 @@ while(connectionStatus != "closed"):
           ackReceived = True
 
     currSEQ = 1 - currSEQ
-
-    fullPacket, senderAddress = clientSocket.recvfrom(1024)
-    print(fullPacket)
 
 clientSocket.close()
